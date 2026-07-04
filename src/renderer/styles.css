@@ -1,0 +1,293 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 920px;
+  min-height: 620px;
+  background: #101317;
+  color: #f5f5f5;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.appShell {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 24px 16px;
+  background: #171b21;
+  border-right: 1px solid #2d3540;
+}
+
+.languageSelect {
+  margin-top: auto;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  overflow: hidden;
+}
+
+.muted {
+  color: #a7afb9;
+}
+
+.controlPanel,
+.panel,
+.logPanel,
+.settingsPanel,
+.emptyState,
+.accountCard {
+  border-radius: 8px;
+  background: #1b2028;
+  border: 1px solid #303946;
+}
+
+.controlPanel {
+  padding: 18px;
+}
+
+.controlMain {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.controlButtons,
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.statusGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #303946;
+}
+
+.statusGrid > div {
+  display: grid;
+  gap: 6px;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  min-height: 0;
+}
+
+.accountsPane,
+.sidePane {
+  min-width: 0;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.emptyState {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 42px 24px;
+  text-align: center;
+}
+
+.emptyIcon {
+  width: 48px;
+  height: 48px;
+  color: #6f7a86;
+}
+
+.accountList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  max-height: calc(100vh - 390px);
+  overflow-y: auto;
+}
+
+.accountCard {
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.accountCard.active {
+  border-color: #479ef5;
+  background: #1a2635;
+}
+
+.accountCardContent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+
+.accountCardMain {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.accountCardHeader,
+.accountCardDetails,
+.detailItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accountCardDetails {
+  flex-wrap: wrap;
+  gap: 10px 22px;
+}
+
+.accountCardActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mono {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+  color: #a7afb9;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 10px 12px;
+  align-items: center;
+  margin: 8px 0 16px;
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logPanel {
+  min-height: 0;
+  flex-shrink: 0;
+}
+
+.logs {
+  height: 170px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 6px;
+  background: #0e1116;
+  border: 1px solid #303946;
+}
+
+.logLine {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 10px;
+  padding: 3px 0;
+  color: #d8dce2;
+  font-size: 12px;
+}
+
+.logLine span {
+  color: #8e949c;
+}
+
+.logLine code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-family: Consolas, "Cascadia Mono", monospace;
+}
+
+.logLine.warn code {
+  color: #f7d774;
+}
+
+.logLine.error code {
+  color: #ff9b9b;
+}
+
+.settingsPanel {
+  max-width: 760px;
+}
+
+.settingsGrid {
+  display: grid;
+  gap: 18px;
+}
+
+.settingsJson textarea {
+  min-height: 220px;
+  font-family: Consolas, "Cascadia Mono", monospace;
+}
+
+.fatal {
+  display: grid;
+  gap: 16px;
+  padding: 32px;
+}
+
+.fatal pre {
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  border-radius: 8px;
+  border: 1px solid #553239;
+  color: #ffb3b3;
+  background: #1b1114;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 1100px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .statusGrid {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .appShell {
+    grid-template-columns: 188px minmax(0, 1fr);
+  }
+
+  .controlMain,
+  .sectionHeader,
+  .accountCardContent {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .accountCardActions {
+    align-self: flex-end;
+  }
+}

@@ -18,6 +18,7 @@ let socialId = 1 + Math.floor(Math.random() * 17);
 let lSocket, promise;
 let wsServerStarted = false;
 let matchmakeResolvers = {};
+let browserProxyProvider;
 const MATCHMAKE_PROXY_WAIT_MS = 15000;
 
 /**
@@ -474,8 +475,16 @@ async function gen3PSIDMCPP(expired) {
 	}
 
 	if (expired) {
-		await startWebSocketLogic();
-		lSocket.send('request');
+		let trafficToken;
+		if (browserProxyProvider && typeof browserProxyProvider.requestTurnstileToken == 'function') {
+			console.log(`\x1b[36m[*] Requesting traffic token through browser proxy provider.\x1b[0m`);
+			await browserProxyProvider.waitReady?.(30000);
+			trafficToken = await browserProxyProvider.requestTurnstileToken();
+		} else {
+			await startWebSocketLogic();
+			lSocket.send('request');
+			trafficToken = await new Promise(resolve => {promise = resolve});
+		}
 		data = await fetch('https://bloxd.io/index/traffic-code', {
 			method: 'POST',
 			headers: {
@@ -485,7 +494,7 @@ async function gen3PSIDMCPP(expired) {
 			body: JSON.stringify({
 				contents: {
 					x: {
-						a: await new Promise(resolve => {promise = resolve})
+						a: trafficToken
 					}
 				},
 				metricsCookies: exports.metrics
@@ -634,6 +643,26 @@ exports.socialRequest = async function(url, data) {
 	}
 
 	if (url.includes('bloxd-matchmake')) {
+		if (browserProxyProvider && typeof browserProxyProvider.doMatchmake == 'function') {
+			console.log(`\x1b[36m[*] Routing matchmake through browser proxy provider (${browserProxyProvider.name ?? 'custom'}).\x1b[0m`);
+			await browserProxyProvider.waitReady?.(MATCHMAKE_PROXY_WAIT_MS);
+			const result = await browserProxyProvider.doMatchmake(data);
+			if (result.error) {
+				throw new Error(result.error);
+			}
+			if (result.loginName) {
+				exports.user.name = result.loginName;
+			}
+			console.log(`\x1b[36m[*] Matchmake provider response: status=${result.status}\x1b[0m`);
+			return {
+				ok: result.status >= 200 && result.status < 300,
+				status: result.status,
+				statusText: result.status === 200 ? 'OK' : (result.status === 400 ? 'Bad Request' : (result.status === 401 ? 'Unauthorized' : '')),
+				text: async () => result.body,
+				json: async () => JSON.parse(result.body)
+			};
+		}
+
 		console.log(`\x1b[36m[*] Matchmake browser proxy status: ${lSocket ? 'connected' : 'not connected'}\x1b[0m`);
 		if (!lSocket) {
 			console.log(`\x1b[33m[!] Matchmake requires the Tampermonkey browser proxy; waiting up to ${MATCHMAKE_PROXY_WAIT_MS / 1000}s for ws://localhost:6874...\x1b[0m`);
@@ -696,6 +725,23 @@ exports.socialRequest = async function(url, data) {
 
 exports.gen3PSIDMCPP = gen3PSIDMCPP;
 exports.genString = genString;
+exports.registerBrowserProxyProvider = function(provider) {
+	browserProxyProvider = provider;
+};
+exports.clearBrowserProxyProvider = function(provider) {
+	if (!provider || browserProxyProvider === provider) {
+		browserProxyProvider = undefined;
+	}
+};
+exports.getBrowserProxyStatus = function() {
+	if (browserProxyProvider && typeof browserProxyProvider.getStatus == 'function') {
+		return browserProxyProvider.getStatus();
+	}
+	return {
+		provider: lSocket ? 'tampermonkey-ws' : 'none',
+		status: lSocket ? 'connected' : 'disconnected'
+	};
+};
 exports.isTampermonkeyConnected = function() { return lSocket !== undefined; };
 exports.waitForTampermonkey = function(timeout = 30000) {
 	return new Promise((resolve) => {

@@ -1,5 +1,12 @@
 /node_modules
 /game
+/dist-electron
+/dist-main
+/dist-preload
+/dist-renderer
+/release
+/accounts
+/diagnostics
 package-lock.json
 login.json
 settings.json
