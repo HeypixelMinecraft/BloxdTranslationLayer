@@ -1,0 +1,5 @@
+/node_modules
+/game
+package-lock.json
+login.json
+settings.json

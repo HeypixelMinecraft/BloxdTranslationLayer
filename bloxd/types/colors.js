@@ -1,0 +1,43 @@
+module.exports = {
+	COLOR_REGEX: /#[A-Za-z0-9]+/g,
+	COLOR_PALETTE: {
+		"#AA0000": "\u00a7a",
+		"#FF5555": "\u00A7c",
+		"#FFAA00": "\u00A76",
+		"#FFFF55": "\u00A7e",
+		"#00AA00": "\u00A72",
+		"#55FF55": "\u00A7a",
+		"#55FFFF": "\u00A7b",
+		"#00AAAA": "\u00A73",
+		"#0000AA": "\u00A71",
+		"#5555FF": "\u00A79",
+		"#FF55FF": "\u00A7d",
+		"#AA00AA": "\u00A75",
+		"#FFFFFF": "\u00A7f",
+		"#AAAAAA": "\u00A77",
+		"#555555": "\u00A78",
+		"#000000": "\u00A70"
+	},
+	COLOR_NAMES: {
+		"Red": "\u00A7c",
+		"Blue": "\u00A79",
+		"red": "\u00A7c",
+		"blue": "\u00A79",
+		"green": "\u00A72",
+		"gold": "\u00A76",
+		"yellow": "\u00A7e",
+		"cyan": "\u00A73",
+		"pink": "\u00A7d",
+		"gray": "\u00A78",
+		"black": "\u00A70",
+		"orange": "\u00A76",
+		"purple": "\u00A75",
+		"magenta": "\u00A75",
+		"brown": "\u00A76",
+		"lime": "\u00A7a",
+		"limegreen": "\u00A7a",
+		"lightgray": "\u00A77",
+		"lightblue": "\u00A79",
+		"lightred": "\u00A7c"
+	}
+}

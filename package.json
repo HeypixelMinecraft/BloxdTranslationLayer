@@ -1,0 +1,22 @@
+{
+  "name": "bloxd-translation-layer",
+  "version": "1.2.6",
+  "description": "A middle man to translate Bloxd packets into Minecraft 1.8.9 packets.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "7GrandDad",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "avsc": "^5.7.7",
+    "colyseus.js": "^0.15.26",
+    "minecraft-protocol": "^1.58.0",
+    "minecraft-data": "3.85.0",
+    "ndarray": "^1.0.19",
+    "pako": "^2.1.0",
+    "prismarine-chunk": "^1.38.1",
+    "vec3": "^0.1.10",
+    "ws": "^8.18.1"
+  }
+}
