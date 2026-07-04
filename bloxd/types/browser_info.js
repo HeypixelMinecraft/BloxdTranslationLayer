@@ -642,6 +642,7 @@ exports.socialRequest = async function(url, data) {
 		lSocket.send(JSON.stringify({
 			type: 'matchmake',
 			id: id,
+			contents: data,
 			gameNameWithVariation: data?.gameNameWithVariation,
 			languages: data?.languages,
 			sp: exports.metrics['3PSIDMCSP']

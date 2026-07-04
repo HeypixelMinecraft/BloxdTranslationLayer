@@ -5,9 +5,75 @@ const { EventEmitter } = require('ws');
 const { PACKET_SEND_EXP_KEY, PACKET_SEND_VER_KEY } = require('./types/anticheat_constants.js');
 const PACKETS = require('./types/packets.js');
 const KICKS = require('./types/kicks.js');
+const activeClients = new Set();
+let crashHandlerInstalled = false;
+const decodeErrors = new Map();
 
 function isView(obj) {
 	return ArrayBuffer.isView(obj) && !(obj instanceof DataView)
+}
+
+function packetName(id) {
+	for (const [name, value] of Object.entries(PACKETS)) {
+		if (value == id && name.includes('SPacket')) return name;
+	}
+	return `UnknownPacket(${id})`;
+}
+
+function sampleData(data) {
+	try {
+		if (data == null) return String(data);
+		if (Buffer.isBuffer(data)) return `Buffer(${data.length}) ${data.toString('hex', 0, Math.min(data.length, 32))}`;
+		if (data instanceof ArrayBuffer) return `ArrayBuffer(${data.byteLength})`;
+		if (isView(data)) return `${data.constructor.name}(${data.byteLength ?? data.length})`;
+		if (typeof data == 'string') return data.length > 300 ? data.substring(0, 300) + '...' : data;
+		const json = JSON.stringify(data);
+		return json.length > 300 ? json.substring(0, 300) + '...' : json;
+	} catch (err) {
+		return `[unserializable ${typeof data}]`;
+	}
+}
+
+function toPacketBuffer(data) {
+	if (Buffer.isBuffer(data)) return data;
+	if (data instanceof ArrayBuffer) return Buffer.from(data);
+	if (isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+	if (Array.isArray(data) || typeof data == 'string') return Buffer.from(data);
+	return undefined;
+}
+
+function logDecodeError(id, data, err) {
+	const key = `${id}:${err.message}`;
+	const count = (decodeErrors.get(key) ?? 0) + 1;
+	decodeErrors.set(key, count);
+	if (count <= 5 || count % 25 == 0) {
+		console.log(`\x1b[33m[!] ${packetName(id)} decode failed #${count}: ${err.message}\n    id=${id} type=${data == null ? data : data.constructor?.name ?? typeof data} sample=${sampleData(data)}\x1b[0m`);
+	}
+}
+
+function installCrashHandler() {
+	if (crashHandlerInstalled) return;
+	crashHandlerInstalled = true;
+	process.prependListener('uncaughtException', (err) => {
+		const stack = String(err && (err.stack || err.message || err));
+		const isColyseusSchemaError = stack.includes('@colyseus/schema') || stack.includes('SchemaSerializer') || stack.includes('Room.patch') || stack.includes('"refId" not found');
+		if (!isColyseusSchemaError) {
+			throw err;
+		}
+
+		console.log(`\x1b[31m[!] Colyseus schema patch error, Bloxd schema likely changed.\n${stack}\x1b[0m`);
+		for (const entry of activeClients) {
+			entry.client.connected = false;
+			if (entry.client.room) {
+				try {
+					entry.client.room.leave(true);
+				} catch (leaveErr) {}
+				entry.client.room = false;
+			}
+			entry.callback('Bloxd schema changed; disconnected before Node crashed. Check packet diagnostic logs.');
+		}
+		activeClients.clear();
+	});
 }
 
 function transformView(obj) {
@@ -27,6 +93,7 @@ module.exports = class BloxClient {
 	settingsEvent = new EventEmitter()
 	packetEvent = new EventEmitter()
 	constructor(fetched, callback) {
+		installCrashHandler();
 		const wsClient = new Client(`wss://${fetched.gameServerHost}`);
 		wsClient.http.headers = {
 			'Origin': 'https://bloxd.io',
@@ -41,7 +108,7 @@ module.exports = class BloxClient {
 			return callback('Please open up the tampermonkey script on the browser, refresh and try again.');
 		}
 
-		const matchMakingResult = wsClient.joinOrCreate(fetched.gameNameWithVariation, {
+		const joinOptions = {
 			cookies: {
 				origin: 'classic'
 			},
@@ -59,7 +126,18 @@ module.exports = class BloxClient {
 			version: version,
 			siteUsed: 'bloxd',
 			subsiteUsed: 'bloxd'
-		});
+		};
+		console.log(`\x1b[36m[*] Colyseus join payload: ${JSON.stringify({
+			game: fetched.gameNameWithVariation,
+			lobbyName: joinOptions.lobbyName,
+			languages: joinOptions.languages,
+			version: joinOptions.version,
+			browser: joinOptions.browserInfo,
+			generalCookieKeys: Object.keys(joinOptions.generalCookies)
+		})}\x1b[0m`);
+		const activeEntry = {client: this, callback};
+		activeClients.add(activeEntry);
+		const matchMakingResult = wsClient.joinOrCreate(fetched.gameNameWithVariation, joinOptions);
 		this.ip = `https://${fetched.gameServerHost}`;
 		this.gameName = fetched.gameNameWithVariation;
 		this.lobbyName = fetched.lobbyName;
@@ -75,21 +153,31 @@ module.exports = class BloxClient {
 			result.onMessage('*', (id, data) => {
 				if (this.connected) {
 					try {
-						this.packetEvent.emit(id, ServerBuffer[id] && ServerBuffer[id].fromBuffer(Buffer.from(data)) || data);
-					} catch (err) {
-						for (const [a, b] of Object.entries(PACKETS)) {
-							if (b == id && a.includes('SPacket')) console.log(a, 'error', err);
+						if (ServerBuffer[id]) {
+							const packetBuffer = toPacketBuffer(data);
+							if (packetBuffer) {
+								this.packetEvent.emit(id, ServerBuffer[id].fromBuffer(packetBuffer));
+							} else {
+								logDecodeError(id, data, new Error('expected binary packet but received non-buffer data'));
+								this.packetEvent.emit(id, data);
+							}
+						} else {
+							this.packetEvent.emit(id, data);
 						}
+					} catch (err) {
+						logDecodeError(id, data, err);
 					}
 				}
 			});
 
 			result.onLeave((code) => {
+				activeClients.delete(activeEntry);
 				if (this.connected) {
 					callback(KICKS[code] ?? `Either your internet isn't working or this is a bug.\nCode: ${code}`);
 				}
 			});
 		}).catch((err) => {
+			activeClients.delete(activeEntry);
 			callback(KICKS[err.code] ?? (err.message != '' ? err.message : `Either your internet isn't working or this is a bug.\nCode: ${err.code}`));
 			if (err.code == 4047 || err.code == 4049) {
 				gen3PSIDMCPP(true);
@@ -121,6 +209,9 @@ module.exports = class BloxClient {
 	}
 	disconnect() {
 		this.connected = false;
+		for (const entry of activeClients) {
+			if (entry.client === this) activeClients.delete(entry);
+		}
 		if (this.room) {
 			this.room.leave(true);
 			this.room = false;
