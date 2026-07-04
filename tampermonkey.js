@@ -32,6 +32,15 @@ async function getTurnstileToken() {
 	const SCRIPT_VERSION = '2026-07-04b';
 	const MATCHMAKE_TEMPLATE_ERROR = 'No captured Bloxd matchmake template yet. Open bloxd.io, click Play once in the website, then connect from Minecraft again.';
 	let lastMatchmakeTemplate = null;
+	let status;
+	let web;
+	let reconnectTimer;
+	let reconnectAttempt = 0;
+	const WS_URLS = ['ws://localhost:6874', 'ws://127.0.0.1:6874'];
+
+	function setStatusText(text) {
+		if (status) status.textContent = 'Bloxd Communication Script Status: ' + text;
+	}
 
 	function safeJsonParse(value) {
 		try {
@@ -107,6 +116,7 @@ async function getTurnstileToken() {
 			contentFields: Object.keys(body.contents),
 			optionFields: Object.keys(lastMatchmakeTemplate.options || {})
 		});
+		setStatusText((web && web.readyState === WebSocket.OPEN ? 'Connected - ' : '') + 'Template Captured');
 	}
 
 	const originalFetch = unsafeWindow.fetch;
@@ -207,8 +217,8 @@ async function getTurnstileToken() {
 	const screen = document.createElement('div');
 	screen.id = 'arthurisstupid';
 	screen.style = "position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 99999; pointer-events: none";
-	const status = document.createElement('h');
-	status.textContent = 'Bloxd Communication Script Status: Not Connected';
+	status = document.createElement('h');
+	setStatusText('Disconnected');
 	status.style = "font-size: 2.2em; color: #FFF";
 	screen.appendChild(status);
 
@@ -340,19 +350,33 @@ async function getTurnstileToken() {
 	});
 	console.log('[BloxdComm] Page-context helper ready');
 
-	const web = new window.WebSocket('ws://localhost:6874');
-	web.onmessage = async (event) => {
+	function scheduleReconnect(reason) {
+		if (reconnectTimer) return;
+		const delay = Math.min(1000 + reconnectAttempt * 1000, 5000);
+		setStatusText('Retrying in ' + Math.ceil(delay / 1000) + 's');
+		console.log('[BloxdComm] WebSocket disconnected' + (reason ? ': ' + reason : '') + ', retrying in ' + delay + 'ms');
+		reconnectTimer = setTimeout(() => {
+			reconnectTimer = undefined;
+			connectWebSocket();
+		}, delay);
+	}
+
+	function handleMessage(event) {
 		if (event.data.startsWith('request')) {
-			status.textContent = 'Bloxd Communication Script Status: Generating token...';
-			const token = await getTurnstileToken();
-			web.send(token);
-			status.textContent = 'Bloxd Communication Script Status: Sent!';
+			setStatusText('Generating token...');
+			getTurnstileToken().then(token => {
+				if (web && web.readyState === WebSocket.OPEN) web.send(token);
+				setStatusText('Sent!');
+			}).catch(err => {
+				console.error('[BloxdComm] Token error:', err);
+				setStatusText('Connected - Token Error');
+			});
 		} else if (event.data.startsWith('{')) {
 			try {
 				const msg = JSON.parse(event.data);
 				if (msg.type === 'matchmake') {
 					const hasPageTemplate = Boolean(unsafeWindow.__bloxdLastMatchmakeTemplate);
-					status.textContent = 'Bloxd Communication Script Status: Matchmaking...';
+					setStatusText('Matchmaking...');
 					console.log('[BloxdComm] Matchmake request from Node:', {
 						id: msg.id,
 						contents: msg.contents,
@@ -372,16 +396,18 @@ async function getTurnstileToken() {
 							console.log('[BloxdComm] >>> SENT BODY:', result.sentBody ? result.sentBody.substring(0, 700) : '');
 							console.log('[BloxdComm] >>> RESPONSE BODY:', result.body ? result.body.substring(0, 300) : '');
 
-							web.send(JSON.stringify({
-								type: 'matchmake',
-								id: msg.id,
-								status: result.status || 0,
-								body: result.body || '',
-								error: result.error || undefined,
-								loginName: result.loginName || undefined,
-								socialId: result.socialId || undefined
-							}));
-							status.textContent = 'Bloxd Communication Script Status: Matchmade! (status=' + (result.status || 0) + ')';
+							if (web && web.readyState === WebSocket.OPEN) {
+								web.send(JSON.stringify({
+									type: 'matchmake',
+									id: msg.id,
+									status: result.status || 0,
+									body: result.body || '',
+									error: result.error || undefined,
+									loginName: result.loginName || undefined,
+									socialId: result.socialId || undefined
+								}));
+							}
+							setStatusText('Matchmade! (status=' + (result.status || 0) + ')');
 						}
 					);
 				}
@@ -389,16 +415,36 @@ async function getTurnstileToken() {
 				console.error('[BloxdComm] Error:', e);
 			}
 		}
-	};
+	}
 
-	web.onopen = async () => {
-		status.textContent = 'Bloxd Communication Script Status: Connected! (v' + SCRIPT_VERSION + ')';
-		console.log('[BloxdComm] WebSocket connected, script version ' + SCRIPT_VERSION + ' (strict replay mode)');
-	};
+	function connectWebSocket() {
+		const url = WS_URLS[reconnectAttempt % WS_URLS.length];
+		reconnectAttempt++;
+		if (web) {
+			web.onclose = null;
+			web.onerror = null;
+			try { web.close(); } catch (err) {}
+		}
+		setStatusText('Retrying ' + url);
+		console.log('[BloxdComm] Connecting WebSocket to ' + url);
+		web = new window.WebSocket(url);
+		web.onmessage = handleMessage;
+		web.onopen = () => {
+			reconnectAttempt = 0;
+			setStatusText(lastMatchmakeTemplate ? 'Connected - Template Captured' : 'Connected! (v' + SCRIPT_VERSION + ')');
+			console.log('[BloxdComm] WebSocket connected to ' + url + ', script version ' + SCRIPT_VERSION + ' (strict replay mode)');
+		};
+		web.onerror = () => {
+			setStatusText('Disconnected');
+			console.log('[BloxdComm] WebSocket error while connecting to ' + url);
+		};
+		web.onclose = () => {
+			setStatusText('Disconnected');
+			scheduleReconnect(url + ' closed');
+		};
+	}
 
-	web.onclose = async () => {
-		status.textContent = 'Bloxd Communication Script Status: Not Connected';
-	};
+	connectWebSocket();
 
 	if (document.body) {
 		document.body.appendChild(screen);

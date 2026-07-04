@@ -18,6 +18,7 @@ let socialId = 1 + Math.floor(Math.random() * 17);
 let lSocket, promise;
 let wsServerStarted = false;
 let matchmakeResolvers = {};
+const MATCHMAKE_PROXY_WAIT_MS = 15000;
 
 /**
  * Parses Set-Cookie header(s) into a key-value map.
@@ -556,7 +557,7 @@ function startWebSocketServer() {
 	wsServer.on('error', (err) => {
 		console.log(`\x1b[36m[*] WebSocket server error: ${err.message}\x1b[0m`);
 	});
-	console.log(`\x1b[36m[*] WebSocket server listening on port 6874, waiting for Tampermonkey script...\x1b[0m`);
+	console.log(`\x1b[36m[*] WebSocket server listening on ws://localhost:6874, waiting for Tampermonkey script...\x1b[0m`);
 };
 
 /**
@@ -632,8 +633,17 @@ exports.socialRequest = async function(url, data) {
 		body.contents = data;
 	}
 
-	// Route matchmake through Tampermonkey browser proxy (bypasses Cloudflare TLS fingerprint detection)
-	if (url.includes('bloxd-matchmake') && lSocket) {
+	if (url.includes('bloxd-matchmake')) {
+		console.log(`\x1b[36m[*] Matchmake browser proxy status: ${lSocket ? 'connected' : 'not connected'}\x1b[0m`);
+		if (!lSocket) {
+			console.log(`\x1b[33m[!] Matchmake requires the Tampermonkey browser proxy; waiting up to ${MATCHMAKE_PROXY_WAIT_MS / 1000}s for ws://localhost:6874...\x1b[0m`);
+			await exports.waitForTampermonkey(MATCHMAKE_PROXY_WAIT_MS);
+		}
+
+		if (!lSocket) {
+			throw new Error('Browser proxy required for bloxd-matchmake. Open https://bloxd.io with the Tampermonkey script installed and wait for "Bloxd Communication Script Status: Connected", then try again.');
+		}
+
 		console.log(`\x1b[36m[*] Routing matchmake through browser proxy (Tampermonkey connected)\x1b[0m`);
 		const id = `mm_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 		const responsePromise = new Promise((resolve) => {
@@ -650,7 +660,7 @@ exports.socialRequest = async function(url, data) {
 		// Timeout: if no response in 30s, the Tampermonkey script likely doesn't handle matchmake
 		const timeoutHandle = setTimeout(() => {
 			if (matchmakeResolvers[id]) {
-				console.log(`\x1b[33m[!] Matchmake proxy timeout (30s) — Tampermonkey script may be outdated or fetch hung\x1b[0m`);
+				console.log(`\x1b[33m[!] Matchmake proxy timeout (30s) - Tampermonkey script may be outdated or fetch hung\x1b[0m`);
 				matchmakeResolvers[id]({error: 'Proxy timeout: no response from Tampermonkey script in 30s. Please update the script and refresh bloxd.io.', status: 0, body: ''});
 				delete matchmakeResolvers[id];
 			}
@@ -674,9 +684,6 @@ exports.socialRequest = async function(url, data) {
 		};
 	}
 
-	if (url.includes('bloxd-matchmake')) {
-		console.log(`\x1b[33m[!] Tampermonkey not connected — falling back to Node fetch (will likely get 400 from TLS fingerprint)\x1b[0m`);
-	}
 	return await fetch(fullUrl, {
 		method: 'POST',
 		headers: {
