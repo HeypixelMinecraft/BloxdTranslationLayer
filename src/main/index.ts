@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { BloxdCdpProvider } from './bloxd-cdp-provider';
 import * as accounts from './accounts';
-import type { AccountInfo, AppStatus, LogEntry, Settings } from '../shared/types';
+import type { AccountImportInput, AccountInfo, AppStatus, LogEntry, Settings } from '../shared/types';
 
 const require = createRequire(import.meta.url);
 const appRoot = path.resolve(__dirname, '..');
@@ -19,13 +19,17 @@ const logs: LogEntry[] = [];
 let mainWindow: BrowserWindow | undefined;
 let nextLogId = 1;
 
-browserInfo.registerBrowserProxyProvider(bloxdProvider);
+service.setRuntimeMode?.('page-client');
+service.setPageRuntimeProvider?.(bloxdProvider);
+browserInfo.setBrowserlessMode?.(false);
+browserInfo.registerMatchmakeProvider?.(bloxdProvider);
 
 function redact(value: string): string {
   return value
     .replace(/("3PSIDMC"\s*:\s*")[^"]+/g, '$1<redacted>')
     .replace(/("3PSIDMCPP"\s*:\s*")[^"]+/g, '$1<redacted>')
-    .replace(/("3PSIDMCSP"\s*:\s*")[^"]+/g, '$1<redacted>');
+    .replace(/("3PSIDMCSP"\s*:\s*")[^"]+/g, '$1<redacted>')
+    .replace(/("trafficCode"\s*:\s*")[^"]+/g, '$1<redacted>');
 }
 
 function pushLog(level: LogEntry['level'], message: string): void {
@@ -81,12 +85,25 @@ function emitStatus(): void {
   mainWindow?.webContents.send('status:update', getStatus());
 }
 
+function applyAccountToRuntime(acc: AccountInfo): void {
+  browserInfo.metrics['3PSIDMC'] = acc.token3PSIDMC || browserInfo.metrics['3PSIDMC'];
+  if (acc.token3PSIDMCPP) browserInfo.metrics['3PSIDMCPP'] = acc.token3PSIDMCPP;
+  if (acc.token3PSIDMCSP) browserInfo.metrics['3PSIDMCSP'] = acc.token3PSIDMCSP;
+  browserInfo.matchmaking.trafficCode = acc.trafficCode || '';
+  browserInfo.cookies = acc.cookies || {};
+  if (acc.name) browserInfo.user.name = acc.name;
+}
+
+function escapeHtml(input: string): string {
+  return input.replace(/[<>&]/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[ch] ?? ch);
+}
+
 function errorHtml(title: string, detail: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>
     body{margin:0;background:#101317;color:#f5f5f5;font-family:Segoe UI,system-ui,sans-serif}
     main{padding:32px;max-width:860px}
     pre{white-space:pre-wrap;background:#181d24;border:1px solid #303846;border-radius:8px;padding:16px;color:#ffb3b3}
-  </style></head><body><main><h1>${title}</h1><p>Electron UI 启动失败，下面是可见错误信息。</p><pre>${detail.replace(/[<>&]/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[ch] ?? ch)}</pre></main></body></html>`;
+  </style></head><body><main><h1>${title}</h1><p>Electron UI 启动失败，下面是可见错误信息。</p><pre>${escapeHtml(detail)}</pre></main></body></html>`;
 }
 
 async function showWindowError(title: string, detail: string): Promise<void> {
@@ -138,8 +155,42 @@ async function createMainWindow(): Promise<void> {
   });
 }
 
+function ensureStartableAccount(): void {
+  const state = service.getState();
+  if (state.runtimeMode === 'page-client') {
+    bloxdProvider.setPageClientMode(true);
+    return;
+  }
+  const current = accounts.getCurrentAccount();
+  if (!current) throw new Error('请先导入账号令牌，确保 Node join 使用同一账号。');
+  if (!current.trafficCode) throw new Error('当前账号缺少 trafficCode，请导入包含 trafficCode 的 login.json。');
+  if (current.expireTime && current.expireTime <= Date.now()) {
+    throw new Error('当前账号令牌已过期，请重新导入有效 login.json。');
+  }
+  applyAccountToRuntime(current);
+  if (!bloxdProvider.getLastMatchmakeResult()) {
+    throw new Error('请先打开 Bloxd 页面并点一次 Play，等待捕获 serverhost 后再开始转译。');
+  }
+}
+
+function accountFromLoginJson(fallback: AccountInfo): AccountInfo {
+  const loginJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'login.json'), 'utf8'));
+  return {
+    ...fallback,
+    name: browserInfo.user?.name || fallback.name,
+    token3PSIDMC: loginJson['3PSIDMC'] || fallback.token3PSIDMC,
+    token3PSIDMCPP: browserInfo.metrics['3PSIDMCPP'] || fallback.token3PSIDMCPP,
+    token3PSIDMCSP: browserInfo.metrics['3PSIDMCSP'] || fallback.token3PSIDMCSP,
+    trafficCode: loginJson.trafficCode || fallback.trafficCode,
+    expireTime: loginJson.expireTime || fallback.expireTime,
+    cookies: loginJson.cookies || fallback.cookies,
+    isActive: true,
+  };
+}
+
 function registerIpc(): void {
   ipcMain.handle('service:start', async () => {
+    ensureStartableAccount();
     const state = await service.start();
     emitStatus();
     return state;
@@ -150,6 +201,7 @@ function registerIpc(): void {
     return state;
   });
   ipcMain.handle('service:restart', async () => {
+    ensureStartableAccount();
     const state = await service.restart();
     emitStatus();
     return state;
@@ -171,6 +223,21 @@ function registerIpc(): void {
     return status;
   });
   ipcMain.handle('bloxd:get-status', () => bloxdProvider.getStatus());
+  ipcMain.handle('matchmake:wait-capture', async (_event, timeoutMs?: number) => {
+    const capture = await bloxdProvider.waitForOfficialMatchmake(timeoutMs || 60000);
+    emitStatus();
+    return capture;
+  });
+  ipcMain.handle('matchmake:get-last', () => bloxdProvider.getLastMatchmakeResult());
+  ipcMain.handle('matchmake:test', async (_event, timeoutMs?: number) => {
+    const capture = await bloxdProvider.waitForOfficialMatchmake(typeof timeoutMs === 'number' ? timeoutMs : 60000);
+    return {
+      ok: Boolean(capture),
+      status: capture ? 200 : 0,
+      statusText: capture ? 'Captured' : 'Timeout',
+      body: capture ? JSON.stringify(capture) : 'No official bloxd-matchmake response captured.',
+    };
+  });
   ipcMain.handle('settings:get', () => readSettings());
   ipcMain.handle('settings:update', (_event, settings: Settings) => writeSettings(settings));
   ipcMain.handle('logs:clear', () => {
@@ -178,72 +245,41 @@ function registerIpc(): void {
     mainWindow?.webContents.send('logs:cleared');
   });
 
-  ipcMain.handle('accounts:list', () => {
-    return accounts.listAccounts();
-  });
-
-  ipcMain.handle('accounts:current', () => {
-    return accounts.getCurrentAccount();
-  });
-
+  ipcMain.handle('accounts:list', () => accounts.listAccounts());
+  ipcMain.handle('accounts:current', () => accounts.getCurrentAccount());
   ipcMain.handle('accounts:switch', (_event, name: string) => {
-    return accounts.switchAccount(name);
+    const acc = accounts.switchAccount(name);
+    applyAccountToRuntime(acc);
+    return acc;
   });
-
   ipcMain.handle('accounts:delete', (_event, name: string) => {
     accounts.deleteAccount(name);
   });
-
-  ipcMain.handle('accounts:login', async () => {
-    try {
-      await bloxdProvider.show();
-      await bloxdProvider.waitReady(60000);
-      const loginCookies = await bloxdProvider.getLoginCookies();
-      if (!loginCookies.token3PSIDMC) {
-        throw new Error('未检测到 Bloxd 登录 Cookie。请先在内置 Bloxd 页面完成登录，然后再点击捕获账号。');
-      }
-      browserInfo.metrics['3PSIDMC'] = loginCookies.token3PSIDMC;
-      browserInfo.cookies = { ...browserInfo.cookies, ...loginCookies.cookies };
-      await browserInfo.gen3PSIDMCPP(true);
-      const currentName = browserInfo.user?.name;
-      if (!currentName) {
-        console.log(`[Accounts] Login completed but no username returned`);
-        return null;
-      }
-      const loginJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'login.json'), 'utf8'));
-      const acc: AccountInfo = {
-        name: currentName,
-        token3PSIDMC: loginJson['3PSIDMC'] || '',
-        trafficCode: loginJson.trafficCode || '',
-        expireTime: loginJson.expireTime || 0,
-        cookies: loginJson.cookies || {},
-        isActive: true,
-      };
-      accounts.saveAccount(acc);
-      pushLog('info', `[Accounts] Saved account: ${currentName}`);
-      return acc;
-    } catch (err) {
-      pushLog('error', `[Accounts] Login failed: ${err}`);
-      throw err;
-    }
+  ipcMain.handle('accounts:import', (_event, input: AccountImportInput) => {
+    const acc = accounts.importAccount(input.raw, input.name);
+    applyAccountToRuntime(acc);
+    pushLog('info', `[Accounts] Imported account: ${acc.name}`);
+    emitStatus();
+    return acc;
   });
-
+  ipcMain.handle('accounts:validate', async (_event, name?: string) => {
+    const acc = name ? accounts.switchAccount(name) : accounts.getCurrentAccount();
+    if (!acc) throw new Error('没有可校验的账号。');
+    applyAccountToRuntime(acc);
+    await browserInfo.gen3PSIDMCPP(false);
+    const updated = accountFromLoginJson(acc);
+    accounts.saveAccount(updated);
+    pushLog('info', `[Accounts] Validated account: ${updated.name}`);
+    return updated;
+  });
   ipcMain.handle('accounts:refresh-tokens', async (_event, name: string) => {
     const acc = accounts.switchAccount(name);
-    try {
-      await browserInfo.gen3PSIDMCPP(true);
-      const loginJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'login.json'), 'utf8'));
-      acc.token3PSIDMC = loginJson['3PSIDMC'] || acc.token3PSIDMC;
-      acc.trafficCode = loginJson.trafficCode || acc.trafficCode;
-      acc.expireTime = loginJson.expireTime || acc.expireTime;
-      acc.cookies = loginJson.cookies || acc.cookies;
-      accounts.saveAccount(acc);
-      pushLog('info', `[Accounts] Refreshed tokens for: ${name}`);
-      return { ...acc, isActive: true };
-    } catch (err) {
-      pushLog('error', `[Accounts] Token refresh failed: ${err}`);
-      throw err;
-    }
+    applyAccountToRuntime(acc);
+    await browserInfo.gen3PSIDMCPP(false);
+    const updated = accountFromLoginJson(acc);
+    accounts.saveAccount(updated);
+    pushLog('info', `[Accounts] Refreshed tokens for: ${updated.name}`);
+    return updated;
   });
 }
 
@@ -262,10 +298,9 @@ registerIpc();
 
 app.whenReady().then(async () => {
   accounts.migrateLegacyLogin();
+  const current = accounts.getCurrentAccount();
+  if (current) applyAccountToRuntime(current);
   await createMainWindow();
-  await bloxdProvider.ensureWindow(false).catch((err) => {
-    console.warn('Bloxd page preload failed:', err);
-  });
 });
 
 app.on('activate', async () => {

@@ -1,6 +1,6 @@
 export type ServiceStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
-export type BloxdPageStatus = 'not-loaded' | 'loading' | 'ready' | 'needs-interaction' | 'template-captured' | 'released' | 'error';
-export type ProxyProvider = 'electron-cdp' | 'tampermonkey-ws' | 'none';
+export type BloxdPageStatus = 'not-loaded' | 'loading' | 'ready' | 'needs-interaction' | 'waiting-login' | 'waiting-world' | 'input-missing' | 'released' | 'error';
+export type ProxyProvider = 'electron-page-client' | 'electron-cdp-once' | 'electron-cdp' | 'tampermonkey-ws' | 'none';
 
 export interface ServiceState {
   status: ServiceStatus;
@@ -8,6 +8,7 @@ export interface ServiceState {
   playerName?: string;
   currentGame?: string;
   currentLobby?: string;
+  runtimeMode?: 'page-client' | 'node-colyseus';
   version: number;
   address: string;
   minecraftVersion: string;
@@ -18,10 +19,30 @@ export interface BloxdStatus {
   visible: boolean;
   provider: ProxyProvider;
   url?: string;
-  templateCaptured: boolean;
   released?: boolean;
   inGameDetected?: boolean;
+  pageClientState?: BloxdPageBridgeState;
+  lastMatchmake?: MatchmakeCapture;
   lastError?: string;
+}
+
+export interface BloxdPageBridgeState {
+  gameSocketConnected?: boolean;
+  worldReady?: boolean;
+  inputReady?: boolean;
+  localEntityId?: string | number;
+  chunkCount?: number;
+  lastPosition?: {
+    x?: number;
+    y?: number;
+    z?: number;
+    heading?: number;
+    pitch?: number;
+    speed?: number;
+    jumping?: boolean;
+    crouching?: boolean;
+  };
+  missingActionHooks?: string[];
 }
 
 export interface AppStatus {
@@ -39,10 +60,36 @@ export interface LogEntry {
 export interface AccountInfo {
   name: string;
   token3PSIDMC: string;
+  token3PSIDMCPP?: string;
+  token3PSIDMCSP?: string;
   trafficCode: string;
   expireTime: number;
   cookies: Record<string, string>;
+  socialId?: number;
+  socialHost?: string;
+  whamm?: string;
+  languages?: string[];
   isActive: boolean;
+}
+
+export interface AccountImportInput {
+  name?: string;
+  raw: string;
+}
+
+export interface MatchmakeTestResult {
+  ok: boolean;
+  status: number;
+  statusText?: string;
+  body: string;
+}
+
+export interface MatchmakeCapture {
+  gameServerHost: string;
+  lobbyName?: string;
+  gameNameWithVariation?: string;
+  matchmakeUrl?: string;
+  capturedAt: number;
 }
 
 export type Settings = Record<string, unknown>;
@@ -64,7 +111,11 @@ export interface BloxdApi {
   accountsList(): Promise<AccountInfo[]>;
   accountsSwitch(name: string): Promise<AccountInfo>;
   accountsDelete(name: string): Promise<void>;
-  accountsLogin(): Promise<AccountInfo | null>;
+  accountsImport(input: AccountImportInput): Promise<AccountInfo>;
+  accountsValidate(name?: string): Promise<AccountInfo>;
   accountsRefreshTokens(name: string): Promise<AccountInfo>;
   accountsCurrent(): Promise<AccountInfo | null>;
+  matchmakeTest(timeoutMs?: number): Promise<MatchmakeTestResult>;
+  matchmakeWaitCapture(timeoutMs?: number): Promise<MatchmakeCapture | null>;
+  matchmakeGetLast(): Promise<MatchmakeCapture | null>;
 }

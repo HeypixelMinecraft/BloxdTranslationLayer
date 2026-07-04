@@ -24,6 +24,8 @@ class TranslationLayerService extends EventEmitter {
 		this.server = undefined;
 		this.bloxDClient = undefined;
 		this.handlersReady = false;
+		this.runtimeMode = 'node-colyseus';
+		this.pageRuntimeProvider = undefined;
 	}
 
 	getState() {
@@ -33,10 +35,20 @@ class TranslationLayerService extends EventEmitter {
 			playerName: this.playerName,
 			currentGame: this.currentGame,
 			currentLobby: this.currentLobby,
+			runtimeMode: this.runtimeMode,
 			version,
 			address: 'localhost',
 			minecraftVersion: '1.8.9'
 		};
+	}
+
+	setRuntimeMode(mode) {
+		this.runtimeMode = mode === 'page-client' ? 'page-client' : 'node-colyseus';
+		this.emit('status', this.getState());
+	}
+
+	setPageRuntimeProvider(provider) {
+		this.pageRuntimeProvider = provider;
 	}
 
 	setStatus(status, error) {
@@ -94,6 +106,11 @@ class TranslationLayerService extends EventEmitter {
 		}
 		this.cleanup(true);
 
+		if (this.runtimeMode == 'page-client') {
+			await this.connectViaPageClient(client, requeue, gamemode, roomId);
+			return;
+		}
+
 		let fetched;
 		for (let i = 0; i < 2; i++) {
 			fetched = await this.queue(gamemode, roomId);
@@ -147,6 +164,46 @@ class TranslationLayerService extends EventEmitter {
 		});
 	}
 
+	async connectViaPageClient(client, requeue, gamemode, roomId) {
+		if (!this.pageRuntimeProvider || typeof this.pageRuntimeProvider.createPageClient != 'function') {
+			client.end('Electron Bloxd page runtime is not available.');
+			return;
+		}
+
+		const requestData = {
+			gameNameWithVariation: gamemode ?? 'skywars'
+		};
+		if (roomId != null) requestData.lobbyNameOrDiscordContext = roomId;
+
+		console.log(`\x1b[36m[*] Page-client request: ${JSON.stringify(requestData)}\x1b[0m`);
+		this.bloxDClient = await this.pageRuntimeProvider.createPageClient(requestData);
+		this.bloxDClient.name = user.name;
+
+		this.bloxDClient.on('SPacketJoinGame', (data) => {
+			this.currentGame = this.bloxDClient.gameName;
+			this.currentLobby = this.bloxDClient.lobbyName;
+			this.emit('status', this.getState());
+			Object.values(handlers).forEach((handler) => handler.bloxd(this.bloxDClient, data));
+			if (!requeue) {
+				client.write('login', {
+					entityId: 99999,
+					gameMode: 0,
+					dimension: 0,
+					difficulty: 2,
+					maxPlayers: 1,
+					levelType: 'default',
+					reducedDebugInfo: false
+				});
+			}
+		});
+
+		this.bloxDClient.on('SPacketKick', (data) => {
+			client.end(data);
+		});
+
+		await this.bloxDClient.connect();
+	}
+
 	ensureHandlers() {
 		if (this.handlersReady) return;
 		Object.values(handlers).forEach((handler) => handler.obtainHandlers(handlers, this.connect.bind(this)));
@@ -196,7 +253,9 @@ class TranslationLayerService extends EventEmitter {
 			});
 
 			console.log('\x1b[33mBloxd Translation Layer Started!\nDeveloped & maintained by 7GrandDad (https://youtube.com/c/7GrandDadVape)\nVersion: v' + version + '\x1b[0m');
-			await checkLogin();
+			if (this.runtimeMode != 'page-client') {
+				await checkLogin();
+			}
 			handlers.misc.friends.refreshData();
 			this.setStatus('running');
 			return this.getState();

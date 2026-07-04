@@ -209,9 +209,9 @@ function installRoomPrototypeDiagnostics() {
 	for (const method of ['setState', 'patch']) {
 		if (typeof Room.prototype[method] != 'function') continue;
 		const original = Room.prototype[method];
-		Room.prototype[method] = function(payload) {
+		Room.prototype[method] = function(...args) {
 			try {
-				return original.call(this, payload);
+				return original.apply(this, args);
 			} catch (err) {
 				if (!isColyseusSchemaError(err)) throw err;
 				const diag = findDiagnosticsForRoom(this);
@@ -227,7 +227,7 @@ function installRoomPrototypeDiagnostics() {
 				writeDiagnostic(diag, `schema-${method}-error`, {
 					error: err.message,
 					stack: err.stack,
-					frame: frameSummary(payload),
+					frame: frameSummary(args[0]),
 					schemaErrors: diag?.schemaErrors
 				});
 				console.log(`\x1b[31m[!] Colyseus schema ${method} failed; continuing in degraded mode. Diagnostics: ${diag?.file ?? 'unavailable'}\x1b[0m`);
@@ -273,7 +273,7 @@ function logPacketPassthrough(id, data, reason, diag) {
 		});
 	}
 	if (count <= 5 || count % 50 == 0) {
-		console.log(`\x1b[36m[*] ${packetName(id)} passed through #${count}: ${reason}; type=${data == null ? data : data.constructor?.name ?? typeof data} sample=${sampleData(data)}\x1b[0m`);
+		console.log(`\x1b[36m[*] ${packetName(id)} passed through #${count}: ${reason}; officialBinary=${officialBinaryState(id)}; type=${data == null ? data : data.constructor?.name ?? typeof data} sample=${sampleData(data)}\x1b[0m`);
 	}
 }
 
@@ -312,9 +312,9 @@ function installColyseusDiagnostics(client, room, diag) {
 	for (const method of ['setState', 'patch']) {
 		if (typeof room[method] != 'function' || room[`__bloxd_${method}_wrapped`]) continue;
 		const original = room[method];
-		room[method] = function(payload) {
+		room[method] = function(...args) {
 			try {
-				return original.call(this, payload);
+				return original.apply(this, args);
 			} catch (err) {
 				if (!isColyseusSchemaError(err)) throw err;
 				diag.schemaErrors++;
@@ -323,7 +323,7 @@ function installColyseusDiagnostics(client, room, diag) {
 				writeDiagnostic(diag, `schema-${method}-error`, {
 					error: err.message,
 					stack: err.stack,
-					frame: frameSummary(payload),
+					frame: frameSummary(args[0]),
 					schemaErrors: diag.schemaErrors
 				});
 				console.log(`\x1b[31m[!] Colyseus schema ${method} failed #${diag.schemaErrors}; continuing in degraded mode. Diagnostics: ${diag.file}\x1b[0m`);
@@ -422,22 +422,14 @@ class BloxClient {
 						if (ServerBuffer[id]) {
 							const packetBuffer = toPacketBuffer(data);
 							if (packetBuffer) {
-								const binaryState = officialBinaryState(id);
-								const allowJoinGameBootstrap = !this.pass && id == PACKETS.SPacketJoinGame;
-								if (binaryState === true || allowJoinGameBootstrap) {
-									try {
-										this.packetEvent.emit(id, ServerBuffer[id].fromBuffer(packetBuffer));
-									} catch (err) {
-										const reason = err && err.message == 'trailing data' ? 'local schema mismatch: trailing data' : err.message;
-										logPacketPassthrough(id, data, reason, this.diagnostics);
-										this.packetEvent.emit(id, data);
-									}
-								} else {
-									logPacketPassthrough(id, data, `official binary is ${binaryState}`, this.diagnostics);
+								try {
+									this.packetEvent.emit(id, ServerBuffer[id].fromBuffer(packetBuffer));
+								} catch (err) {
+									const reason = err && err.message == 'trailing data' ? 'local schema mismatch: trailing data' : err.message;
+									logPacketPassthrough(id, data, reason, this.diagnostics);
 									this.packetEvent.emit(id, data);
 								}
 							} else {
-								logPacketPassthrough(id, data, 'official payload is not binary', this.diagnostics);
 								this.packetEvent.emit(id, data);
 							}
 						} else {

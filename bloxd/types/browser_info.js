@@ -19,6 +19,8 @@ let lSocket, promise;
 let wsServerStarted = false;
 let matchmakeResolvers = {};
 let browserProxyProvider;
+let matchmakeProvider;
+let browserlessMode = false;
 const MATCHMAKE_PROXY_WAIT_MS = 15000;
 
 /**
@@ -474,6 +476,11 @@ async function gen3PSIDMCPP(expired) {
 		return;
 	}
 
+	if (expired && browserlessMode) {
+		console.log(`\x1b[33m[!] trafficCode is expired, but browserless GUI mode is enabled. Re-import a fresh account token instead of opening a browser.\x1b[0m`);
+		return;
+	}
+
 	if (expired) {
 		let trafficToken;
 		if (browserProxyProvider && typeof browserProxyProvider.requestTurnstileToken == 'function') {
@@ -619,8 +626,15 @@ exports.checkLogin = async function() {
 	// Source: Official bundle ju7fs.main.a3ef6281.js (offsets 1290814, 308842, 325310)
 	socialId = 1;
 
-	await gen3PSIDMCPP(expired);
-	startWebSocketServer();
+	if (browserlessMode && expired) {
+		console.log(`\x1b[33m[!] Current account token is expired. Browserless GUI mode will not request Turnstile through a browser.\x1b[0m`);
+		await gen3PSIDMCPP(false);
+	} else {
+		await gen3PSIDMCPP(expired);
+	}
+	if (!browserlessMode) {
+		startWebSocketServer();
+	}
 	loadSettings();
 };
 
@@ -643,6 +657,24 @@ exports.socialRequest = async function(url, data) {
 	}
 
 	if (url.includes('bloxd-matchmake')) {
+		if (matchmakeProvider && typeof matchmakeProvider.doMatchmake == 'function') {
+			console.log(`\x1b[36m[*] Routing matchmake through browserless provider (${matchmakeProvider.name ?? 'custom'}).\x1b[0m`);
+			const result = await matchmakeProvider.doMatchmake(data);
+			if (result.error) {
+				console.log(`\x1b[33m[!] Browserless matchmake failed: ${result.error}\x1b[0m`);
+			}
+			if (result.matchmakeUrl) {
+				console.log(`\x1b[36m[*] Browserless matchmake URL: ${result.matchmakeUrl}\x1b[0m`);
+			}
+			return {
+				ok: result.status >= 200 && result.status < 300,
+				status: result.status,
+				statusText: result.status === 200 ? 'OK' : (result.status === 400 ? 'Browserless Rejected' : (result.status === 401 ? 'Unauthorized' : (result.statusText || 'Browserless Error'))),
+				text: async () => result.body || result.error || '',
+				json: async () => JSON.parse(result.body)
+			};
+		}
+
 		if (browserProxyProvider && typeof browserProxyProvider.doMatchmake == 'function') {
 			console.log(`\x1b[36m[*] Routing matchmake through browser proxy provider (${browserProxyProvider.name ?? 'custom'}).\x1b[0m`);
 			await browserProxyProvider.waitReady?.(MATCHMAKE_PROXY_WAIT_MS);
@@ -733,7 +765,21 @@ exports.clearBrowserProxyProvider = function(provider) {
 		browserProxyProvider = undefined;
 	}
 };
+exports.registerMatchmakeProvider = function(provider) {
+	matchmakeProvider = provider;
+};
+exports.clearMatchmakeProvider = function(provider) {
+	if (!provider || matchmakeProvider === provider) {
+		matchmakeProvider = undefined;
+	}
+};
+exports.setBrowserlessMode = function(enabled) {
+	browserlessMode = Boolean(enabled);
+};
 exports.getBrowserProxyStatus = function() {
+	if (matchmakeProvider && typeof matchmakeProvider.getStatus == 'function') {
+		return matchmakeProvider.getStatus();
+	}
 	if (browserProxyProvider && typeof browserProxyProvider.getStatus == 'function') {
 		return browserProxyProvider.getStatus();
 	}

@@ -230,6 +230,46 @@ let PACKETS = {
 	SPacketCustomItem: serverPackets[serverIndex++],
 	SPacketPoll: serverPackets[serverIndex++],
 	SPacketSetBlockData: serverPackets[serverIndex++],
+	SPacketUnknown1: serverPackets[serverIndex++],
+	SPacketUnknown2: serverPackets[serverIndex++],
+	SPacketUnknown3: serverPackets[serverIndex++],
+	SPacketUnknown4: serverPackets[serverIndex++],
+	SPacketUnknown5: serverPackets[serverIndex++],
+	SPacketUnknown6: serverPackets[serverIndex++],
+	SPacketUnknown7: serverPackets[serverIndex++],
+	SPacketUnknown8: serverPackets[serverIndex++],
+	SPacketUnknown9: serverPackets[serverIndex++],
+	SPacketUnknown10: serverPackets[serverIndex++],
+	SPacketUnknown11: serverPackets[serverIndex++],
+	SPacketUnknown12: serverPackets[serverIndex++],
+	SPacketUnknown13: serverPackets[serverIndex++],
+	SPacketUnknown14: serverPackets[serverIndex++],
+	SPacketUnknown15: serverPackets[serverIndex++],
+	SPacketUnknown16: serverPackets[serverIndex++],
+	SPacketUnknown17: serverPackets[serverIndex++],
+	SPacketUnknown18: serverPackets[serverIndex++],
+	SPacketUnknown19: serverPackets[serverIndex++],
+	SPacketUnknown20: serverPackets[serverIndex++],
+	SPacketUnknown21: serverPackets[serverIndex++],
+	SPacketUnknown22: serverPackets[serverIndex++],
+	SPacketUnknown23: serverPackets[serverIndex++],
+	SPacketUnknown24: serverPackets[serverIndex++],
+	SPacketUnknown25: serverPackets[serverIndex++],
+	SPacketUnknown26: serverPackets[serverIndex++],
+	SPacketUnknown27: serverPackets[serverIndex++],
+	SPacketUnknown28: serverPackets[serverIndex++],
+	SPacketUnknown29: serverPackets[serverIndex++],
+	SPacketUnknown30: serverPackets[serverIndex++],
+	SPacketUnknown31: serverPackets[serverIndex++],
+	SPacketUnknown32: serverPackets[serverIndex++],
+	SPacketUnknown33: serverPackets[serverIndex++],
+	SPacketUnknown34: serverPackets[serverIndex++],
+	SPacketUnknown35: serverPackets[serverIndex++],
+	SPacketUnknown36: serverPackets[serverIndex++],
+	SPacketUnknown37: serverPackets[serverIndex++],
+	SPacketUnknown38: serverPackets[serverIndex++],
+	SPacketUnknown39: serverPackets[serverIndex++],
+	SPacketUnknown40: serverPackets[serverIndex++],
 };
 
 const FloatArray = {
@@ -1122,22 +1162,9 @@ PACKETS.ServerBuffer = {
 			type: ['null', 'string']
 		}]
 	}),
-	[PACKETS.SPacketSetBlock3]: Type.forSchema({
-		type: 'array',
-		items: {
-			type: 'record',
-			fields: [{
-				name: 'pos',
-				type: IntArray
-			}, {
-				name: 'actualId',
-				type: 'int'
-			}, {
-				name: 'data',
-				type: ['null', 'string']
-			}]
-		}
-	}),
+	[PACKETS.SPacketSetBlock3]: {
+		fromBuffer(buf) { return buf; }
+	},
 	[PACKETS.SPacketSyncInventory]: Type.forSchema({
 		type: 'record',
 		fields: [{
@@ -1161,9 +1188,9 @@ PACKETS.ServerBuffer = {
 		type: 'array',
 		items: IntArray
 	}),
-	[PACKETS.SPacketSelectSlot]: Type.forSchema({
-		type: 'int'
-	}),
+	[PACKETS.SPacketSelectSlot]: {
+		fromBuffer(buf) { return buf; }
+	},
 	[PACKETS.SPacketBulletFire]: Type.forSchema({
 		type: 'record',
 		fields: [{
@@ -1410,9 +1437,9 @@ PACKETS.ServerBuffer = {
 			type: ['null', 'string']
 		}]
 	}),
-	[PACKETS.SPacketCloseRequest]: Type.forSchema({
-		type: 'int'
-	}),
+	[PACKETS.SPacketCloseRequest]: {
+		fromBuffer(buf) { return buf; }
+	},
 	[PACKETS.SPacketUpdateEffect]: Type.forSchema({
 		type: 'record',
 		fields: [{
@@ -1453,9 +1480,9 @@ PACKETS.ServerBuffer = {
 	[PACKETS.SPacketUpdateSpeed]: Type.forSchema({
 		type: 'float'
 	}),
-	[PACKETS.SPacketUpdateJump]: Type.forSchema({
-		type: 'float'
-	}),
+	[PACKETS.SPacketUpdateJump]: {
+		fromBuffer(buf) { return buf; }
+	},
 	[PACKETS.SPacketPlaySound]: Type.forSchema({
 		type: 'record',
 		fields: [{
@@ -1669,7 +1696,40 @@ PACKETS.ServerBuffer = {
 	}),
 	[PACKETS.SPacketFOV]: Type.forSchema({
 		type: 'int'
-	})
+	}),
+	[PACKETS.SPacketUnknown15]: {
+		fromBuffer(buf) { return buf; }
+	},
+	[PACKETS.SPacketUnknown4]: {
+		fromBuffer(buf) { return buf; }
+	},
+	[PACKETS.SPacketUnknown6]: {
+		fromBuffer(buf) { return buf; }
+	},
+	[PACKETS.SPacketUnknown26]: {
+		fromBuffer(buf) { return buf; }
+	},
+	[PACKETS.SPacketUnknown37]: {
+		fromBuffer(buf) { return buf; }
+	},
+	[PACKETS.SPacketUnknown16]: {
+		fromBuffer(buf) { return buf; }
+	},
+	[PACKETS.SPacketUnknown40]: {
+		fromBuffer(buf) { return buf; }
+	},
+	[PACKETS.SPacketKillfeed]: {
+		fromBuffer(buf) { return buf; }
+	},
+	[PACKETS.SPacketPoll]: {
+		fromBuffer(buf) { return buf; }
+	},
+	[PACKETS.SPacketSetBlockData]: {
+		fromBuffer(buf) { return buf; }
+	},
+	[PACKETS.SPacketUpdateCrafting]: {
+		fromBuffer(buf) { return buf; }
+	},
 };
 
 module.exports = PACKETS;

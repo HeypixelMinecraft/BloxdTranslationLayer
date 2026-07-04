@@ -248,6 +248,17 @@ body {
   font-family: Consolas, "Cascadia Mono", monospace;
 }
 
+.dialogFields {
+  display: grid;
+  gap: 14px;
+  min-width: min(640px, 80vw);
+}
+
+.dialogFields textarea {
+  min-height: 220px;
+  font-family: Consolas, "Cascadia Mono", monospace;
+}
+
 .fatal {
   display: grid;
   gap: 16px;

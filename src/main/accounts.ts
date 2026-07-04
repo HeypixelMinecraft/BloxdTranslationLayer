@@ -39,12 +39,20 @@ function deleteLoginJson(): void {
 }
 
 function loginDataToAccount(data: Record<string, unknown>, name?: string): AccountInfo {
+  const metrics = (data.metricsCookies as Record<string, string>) || {};
+  const cookies = (data.cookies as Record<string, string>) || {};
   return {
-    name: name || (data.name as string) || 'Unknown',
-    token3PSIDMC: (data['3PSIDMC'] as string) || '',
+    name: name || (data.name as string) || (data.username as string) || 'Imported Account',
+    token3PSIDMC: (data['3PSIDMC'] as string) || (data['___Secure-3PSIDMC'] as string) || metrics['3PSIDMC'] || cookies['___Secure-3PSIDMC'] || '',
+    token3PSIDMCPP: (data['3PSIDMCPP'] as string) || (data['___Secure-3PSIDMCPP'] as string) || metrics['3PSIDMCPP'] || cookies['___Secure-3PSIDMCPP'] || '',
+    token3PSIDMCSP: (data['3PSIDMCSP'] as string) || (data['___Secure-3PSIDMCSP'] as string) || metrics['3PSIDMCSP'] || cookies['___Secure-3PSIDMCSP'] || '',
     trafficCode: (data.trafficCode as string) || '',
     expireTime: (data.expireTime as number) || 0,
-    cookies: (data.cookies as Record<string, string>) || {},
+    cookies,
+    socialId: data.socialId as number | undefined,
+    socialHost: data.socialHost as string | undefined,
+    whamm: data.whamm as string | undefined,
+    languages: Array.isArray(data.languages) ? data.languages as string[] : undefined,
     isActive: false,
   };
 }
@@ -52,10 +60,16 @@ function loginDataToAccount(data: Record<string, unknown>, name?: string): Accou
 function accountToLoginData(acc: AccountInfo): Record<string, unknown> {
   return {
     '3PSIDMC': acc.token3PSIDMC,
+    '3PSIDMCPP': acc.token3PSIDMCPP,
+    '3PSIDMCSP': acc.token3PSIDMCSP,
     trafficCode: acc.trafficCode,
     expireTime: acc.expireTime,
     cookies: acc.cookies,
     name: acc.name,
+    socialId: acc.socialId,
+    socialHost: acc.socialHost,
+    whamm: acc.whamm,
+    languages: acc.languages,
   };
 }
 
@@ -148,6 +162,41 @@ export function deleteAccount(name: string): void {
 export function saveAccount(acc: AccountInfo): void {
   writeAccountFile(acc);
   writeLoginJson(accountToLoginData(acc));
+}
+
+function parseImportText(raw: string): Record<string, unknown> {
+  const trimmed = raw.trim();
+  if (!trimmed) throw new Error('导入内容为空');
+  if (trimmed.startsWith('{')) {
+    return JSON.parse(trimmed) as Record<string, unknown>;
+  }
+
+  const data: Record<string, unknown> = {};
+  for (const line of trimmed.split(/\r?\n|;/)) {
+    const [rawKey, ...rest] = line.split('=');
+    const key = rawKey?.trim();
+    const value = rest.join('=').trim();
+    if (!key || !value) continue;
+    data[key] = value;
+  }
+  if (Object.keys(data).length === 0) {
+    throw new Error('无法识别导入内容，请粘贴 login.json 或 key=value cookie/token');
+  }
+  return data;
+}
+
+export function importAccount(raw: string, preferredName?: string): AccountInfo {
+  const parsed = parseImportText(raw);
+  if (preferredName?.trim()) parsed.name = preferredName.trim();
+  const acc = loginDataToAccount(parsed);
+  if (!acc.token3PSIDMC) {
+    throw new Error('导入内容缺少 3PSIDMC');
+  }
+  if (!acc.expireTime) {
+    acc.expireTime = Date.now() + 6048e5;
+  }
+  saveAccount(acc);
+  return { ...acc, isActive: true };
 }
 
 export function migrateLegacyLogin(): AccountInfo | null {

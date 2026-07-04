@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AccountInfo, AppStatus, BloxdApi, LogEntry, Settings } from '../shared/types';
+import type { AccountImportInput, AppStatus, BloxdApi, LogEntry, Settings } from '../shared/types';
 
 const api: BloxdApi = {
   serviceStart: () => ipcRenderer.invoke('service:start'),
@@ -26,9 +26,13 @@ const api: BloxdApi = {
   accountsList: () => ipcRenderer.invoke('accounts:list'),
   accountsSwitch: (name: string) => ipcRenderer.invoke('accounts:switch', name),
   accountsDelete: (name: string) => ipcRenderer.invoke('accounts:delete', name),
-  accountsLogin: () => ipcRenderer.invoke('accounts:login'),
+  accountsImport: (input: AccountImportInput) => ipcRenderer.invoke('accounts:import', input),
+  accountsValidate: (name?: string) => ipcRenderer.invoke('accounts:validate', name),
   accountsRefreshTokens: (name: string) => ipcRenderer.invoke('accounts:refresh-tokens', name),
   accountsCurrent: () => ipcRenderer.invoke('accounts:current'),
+  matchmakeTest: (timeoutMs?: number) => ipcRenderer.invoke('matchmake:test', timeoutMs),
+  matchmakeWaitCapture: (timeoutMs?: number) => ipcRenderer.invoke('matchmake:wait-capture', timeoutMs),
+  matchmakeGetLast: () => ipcRenderer.invoke('matchmake:get-last'),
 };
 
 contextBridge.exposeInMainWorld('bloxdApi', api);

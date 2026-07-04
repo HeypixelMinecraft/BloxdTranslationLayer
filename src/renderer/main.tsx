@@ -30,14 +30,14 @@ import {
   Add24Regular,
   ArrowClockwise24Regular,
   ArrowSwap24Regular,
+  Beaker24Regular,
   Copy24Regular,
   Delete24Regular,
   Dismiss24Regular,
-  Eye24Regular,
-  EyeOff24Regular,
   Guest24Regular,
   People24Regular,
   Play24Regular,
+  Save24Regular,
   Settings24Regular,
   Stop24Regular,
 } from '@fluentui/react-icons';
@@ -58,8 +58,7 @@ const emptyStatus: AppStatus = {
   bloxd: {
     status: 'not-loaded',
     visible: false,
-    provider: 'electron-cdp',
-    templateCaptured: false,
+    provider: 'electron-page-client',
   },
 };
 
@@ -72,7 +71,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }
 
   render() {
     if (this.state.error) {
-      return <FatalError title="界面渲染失败" detail={this.state.error.stack || this.state.error.message} />;
+      return <FatalError title={t('error.render.title')} detail={this.state.error.stack || this.state.error.message} />;
     }
     return this.props.children;
   }
@@ -83,7 +82,7 @@ function FatalError({ title, detail }: { title: string; detail: string }) {
     <FluentProvider theme={webDarkTheme}>
       <main className="fatal">
         <Text as="h1" size={700} weight="semibold">{title}</Text>
-        <Text className="muted">应用没有成功启动到管理界面。错误信息如下：</Text>
+        <Text className="muted">{t('error.render.body')}</Text>
         <pre>{detail}</pre>
       </main>
     </FluentProvider>
@@ -91,7 +90,7 @@ function FatalError({ title, detail }: { title: string; detail: string }) {
 }
 
 function statusIntent(status: string): 'success' | 'warning' | 'danger' | 'important' | 'subtle' {
-  if (['running', 'ready', 'template-captured', 'connected'].includes(status)) return 'success';
+  if (['running', 'ready', 'connected'].includes(status)) return 'success';
   if (['starting', 'loading', 'waiting', 'needs-interaction'].includes(status)) return 'warning';
   if (['error'].includes(status)) return 'danger';
   if (['stopping'].includes(status)) return 'important';
@@ -124,19 +123,10 @@ function expireLabel(acc: AccountInfo): string {
   return t('accounts.expires.in', { days: daysLeft });
 }
 
-function formatToken(token: string): string {
+function formatToken(token?: string): string {
   if (!token) return '-';
   if (token.length <= 12) return token;
   return `${token.slice(0, 6)}...${token.slice(-4)}`;
-}
-
-function templateStatusText(status: AppStatus): string {
-  if (status.bloxd.released) return t('bloxd.status.released');
-  return status.bloxd.templateCaptured ? t('bloxd.status.captured') : t('bloxd.status.waiting');
-}
-
-function templateStatusIntent(status: AppStatus): 'success' | 'warning' {
-  return status.bloxd.templateCaptured ? 'success' : 'warning';
 }
 
 function App() {
@@ -154,6 +144,9 @@ function App() {
   const [notice, setNotice] = useState<string | undefined>();
   const [lang, setLangState] = useState(getLang());
   const [confirmAction, setConfirmAction] = useState<{ key: string; params?: Record<string, string>; action: () => Promise<void> } | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importName, setImportName] = useState('');
+  const [importRaw, setImportRaw] = useState('');
   const logRef = useRef<HTMLDivElement>(null);
 
   const refreshAccounts = useCallback(async () => {
@@ -216,27 +209,25 @@ function App() {
   }
 
   async function handleStartTranslation() {
-    if (!currentAccount) {
-      setNotice(t('service.need.account'));
-      return;
-    }
-    if (!status.bloxd.templateCaptured) {
-      setNotice(t('service.need.template'));
-      await window.bloxdApi.bloxdShow();
-      return;
-    }
     await runAction(t('service.start'), window.bloxdApi.serviceStart);
   }
 
-  async function handleOpenBloxd() {
-    await runAction(t('bloxd.show'), window.bloxdApi.bloxdShow);
+  async function handleImportAccount() {
+    await runAction(t('accounts.import'), async () => {
+      await window.bloxdApi.accountsImport({ name: importName || undefined, raw: importRaw });
+      setImportOpen(false);
+      setImportName('');
+      setImportRaw('');
+    }, true);
   }
 
-  async function handleCaptureAccount() {
-    await runAction(t('accounts.login.waiting'), async () => {
-      const account = await window.bloxdApi.accountsLogin();
-      if (!account) throw new Error('没有捕获到账号，请确认内置 Bloxd 页面已经登录。');
-    }, true);
+  async function handleMatchmakeTest() {
+    await runAction(t('matchmake.capture.waiting'), async () => {
+      await window.bloxdApi.bloxdShow();
+      const capture = await window.bloxdApi.matchmakeWaitCapture(60000);
+      if (!capture) throw new Error(t('service.need.capture'));
+      setNotice(t('matchmake.captured', { game: capture.gameNameWithVariation || '-', lobby: capture.lobbyName || '-' }));
+    });
   }
 
   function confirmThen(key: string, action: () => Promise<void>, params?: Record<string, string>) {
@@ -280,7 +271,7 @@ function App() {
               <div>
                 <Text as="h2" size={700} weight="semibold">{t('service.start')}</Text>
                 <Text className="muted">
-                  {t('service.address')}: {status.service.address} · Minecraft {status.service.minecraftVersion} · {t('accounts.current')}: {currentAccountName}
+                  {t('service.address')}: {status.service.address} / Minecraft {status.service.minecraftVersion} / {t('accounts.current')}: {currentAccountName}
                 </Text>
               </div>
               <div className="controlButtons">
@@ -298,10 +289,11 @@ function App() {
 
             <div className="statusGrid">
               <div><Label>{t('service.status.running')}</Label><Badge appearance="filled" color={statusIntent(status.service.status)}>{t(`service.status.${status.service.status}`)}</Badge></div>
+              <div><Label>Provider</Label><Badge appearance="filled" color="success">{status.bloxd.provider}</Badge></div>
+              <div><Label>Runtime</Label><Text>{status.service.runtimeMode || 'page-client'}</Text></div>
               <div><Label>{t('service.player')}</Label><Text>{status.service.playerName || t('service.no.client')}</Text></div>
               <div><Label>{t('service.game')}</Label><Text>{status.service.currentGame || t('service.not.queued')}</Text></div>
               <div><Label>{t('service.lobby')}</Label><Text>{status.service.currentLobby || t('service.not.joined')}</Text></div>
-              <div><Label>{t('bloxd.status.template')}</Label><Badge appearance="filled" color={templateStatusIntent(status)}>{templateStatusText(status)}</Badge></div>
             </div>
           </Card>
 
@@ -319,11 +311,12 @@ function App() {
                 <div className="sectionHeader">
                   <div>
                     <Text as="h2" size={600} weight="semibold">{t('accounts.title')}</Text>
-                    <Text className="muted">{t('accounts.add.desc')}</Text>
+                    <Text className="muted">{t('accounts.import.desc')}</Text>
                   </div>
                   <div className="actions">
-                    <Button appearance="primary" icon={<Add24Regular />} disabled={Boolean(busy)} onClick={handleOpenBloxd}>{t('accounts.add')}</Button>
-                    <Button icon={<Guest24Regular />} disabled={Boolean(busy)} onClick={handleCaptureAccount}>{t('accounts.capture')}</Button>
+                    <Button appearance="primary" icon={<Add24Regular />} disabled={Boolean(busy)} onClick={() => setImportOpen(true)}>{t('accounts.import')}</Button>
+                    <Button icon={<Play24Regular />} disabled={Boolean(busy)} onClick={() => runAction(t('bloxd.open'), window.bloxdApi.bloxdShow)}>{t('bloxd.open')}</Button>
+                    <Button icon={<Beaker24Regular />} disabled={Boolean(busy)} onClick={handleMatchmakeTest}>{t('matchmake.capture')}</Button>
                     <Button icon={<ArrowClockwise24Regular />} disabled={Boolean(busy)} onClick={() => runAction(t('common.refresh'), () => refreshAccounts())}>{t('common.refresh')}</Button>
                   </div>
                 </div>
@@ -348,6 +341,7 @@ function App() {
                             <div className="accountCardDetails">
                               <div className="detailItem"><Label size="small">{t('accounts.expires')}</Label><Text size={200}>{expireLabel(acc)}</Text></div>
                               <div className="detailItem"><Label size="small">{t('accounts.token')}</Label><Text size={200} className="mono">{formatToken(acc.token3PSIDMC)}</Text></div>
+                              <div className="detailItem"><Label size="small">{t('accounts.traffic')}</Label><Text size={200} className="mono">{formatToken(acc.trafficCode)}</Text></div>
                             </div>
                           </div>
                           <div className="accountCardActions">
@@ -356,6 +350,9 @@ function App() {
                                 <Button icon={<ArrowSwap24Regular />} disabled={Boolean(busy)} onClick={() => confirmThen('accounts.switch', async () => { await window.bloxdApi.accountsSwitch(acc.name); }, { name: acc.name })} />
                               </Tooltip>
                             ) : null}
+                            <Tooltip content={t('accounts.validate')} relationship="label">
+                              <Button icon={<Beaker24Regular />} disabled={Boolean(busy)} onClick={() => runAction(t('accounts.validate'), async () => { await window.bloxdApi.accountsValidate(acc.name); }, true)} />
+                            </Tooltip>
                             <Tooltip content={t('accounts.refresh')} relationship="label">
                               <Button icon={<ArrowClockwise24Regular />} disabled={Boolean(busy)} onClick={() => confirmThen('accounts.refresh', async () => { await window.bloxdApi.accountsRefreshTokens(acc.name); }, { name: acc.name })} />
                             </Tooltip>
@@ -372,16 +369,29 @@ function App() {
 
               <aside className="sidePane">
                 <Card className="panel">
-                  <CardHeader header={<Text weight="semibold">{t('bloxd.browser')}</Text>} />
+                  <CardHeader header={<Text weight="semibold">{t('provider.title')}</Text>} />
                   <div className="facts">
-                    <Label>{t('bloxd.status.template')}</Label>
-                    <Text>{templateStatusText(status)}</Text>
+                    <Label>Provider</Label>
+                    <Text>{status.bloxd.provider}</Text>
                     <Label>URL</Label>
                     <Text className="truncate">{status.bloxd.url || '-'}</Text>
+                    <Label>{t('matchmake.serverhost')}</Label>
+                    <Text className="truncate">{status.bloxd.lastMatchmake?.gameServerHost || t('matchmake.none')}</Text>
+                    <Label>{t('service.lobby')}</Label>
+                    <Text>{status.bloxd.lastMatchmake?.lobbyName || '-'}</Text>
+                    <Label>Socket</Label>
+                    <Text>{status.bloxd.pageClientState?.gameSocketConnected ? 'connected' : '-'}</Text>
+                    <Label>World</Label>
+                    <Text>{status.bloxd.pageClientState?.worldReady ? 'ready' : 'waiting'}</Text>
+                    <Label>Input</Label>
+                    <Text>{status.bloxd.pageClientState?.inputReady ? 'ready' : 'waiting'}</Text>
+                    <Label>Chunks</Label>
+                    <Text>{status.bloxd.pageClientState?.chunkCount ?? 0}</Text>
                   </div>
-                  <div className="actions">
-                    <Button icon={<Eye24Regular />} onClick={() => runAction(t('bloxd.show'), window.bloxdApi.bloxdShow)}>{t('bloxd.show')}</Button>
-                    <Button icon={<EyeOff24Regular />} onClick={() => runAction(t('bloxd.hide'), window.bloxdApi.bloxdHide)}>{t('bloxd.hide')}</Button>
+                  <Text className="muted">{t('provider.desc')}</Text>
+                  <div className="actions captureActions">
+                    <Button icon={<Play24Regular />} onClick={() => runAction(t('bloxd.open'), window.bloxdApi.bloxdShow)}>{t('bloxd.open')}</Button>
+                    <Button icon={<ArrowClockwise24Regular />} onClick={() => runAction(t('bloxd.reload'), window.bloxdApi.bloxdReload)}>{t('bloxd.reload')}</Button>
                   </div>
                 </Card>
               </aside>
@@ -423,6 +433,30 @@ function App() {
           </Card>
         </section>
       </main>
+
+      <Dialog open={importOpen} onOpenChange={(_, data) => setImportOpen(data.open)}>
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>{t('accounts.import.title')}</DialogTitle>
+            <DialogContent>
+              <div className="dialogFields">
+                <Field label={t('accounts.import.name')}>
+                  <Input value={importName} onChange={(_, data) => setImportName(data.value)} />
+                </Field>
+                <Field label={t('accounts.import.raw')}>
+                  <Textarea value={importRaw} onChange={(_, data) => setImportRaw(data.value)} placeholder={t('accounts.import.placeholder')} resize="vertical" />
+                </Field>
+              </div>
+            </DialogContent>
+            <DialogActions>
+              <DialogTrigger disableButtonEnhancement>
+                <Button appearance="secondary">{t('common.cancel')}</Button>
+              </DialogTrigger>
+              <Button appearance="primary" icon={<Save24Regular />} disabled={!importRaw.trim() || Boolean(busy)} onClick={handleImportAccount}>{t('common.save')}</Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
 
       <Dialog open={confirmAction !== null} onOpenChange={(_, data) => { if (!data.open) setConfirmAction(null); }}>
         <DialogSurface>
